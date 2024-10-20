@@ -5,6 +5,7 @@ const router: Router = Router();
 const docker = new Docker();
 
 const PYTHON_ALGORAND_IMAGE = 'python-algorand';
+const PYTHON_ALGORAND_CONTAINER = 'algokit_sandbox_python_algorand';
 
 interface LanguageConfig {
     image: string;
@@ -24,42 +25,53 @@ async function runCode(language: string, code: string): Promise<{ stdout: string
         throw new Error(`Unsupported language: ${language}`);
     }
 
-    const container = await docker.createContainer({
-        Image: config.image,
+    const container = docker.getContainer(PYTHON_ALGORAND_CONTAINER);
+
+    const exec = await container.exec({
         Cmd: config.executeCmd(code),
         AttachStdout: true,
         AttachStderr: true,
-        Tty: false,
     });
 
-    await container.start();
-
-    const logs = await container.logs({ follow: true, stdout: true, stderr: true });
+    const stream = await exec.start({ hijack: true, stdin: false });
 
     let stdout = '';
     let stderr = '';
-    logs.on('data', (chunk) => {
-        let i = 0;
-        while (i < chunk.length) {
-            const header = chunk.readUInt8(i);
-            const payloadSize = chunk.readUInt32BE(i + 4);
-            const payload = chunk.slice(i + 8, i + 8 + payloadSize).toString('utf8');
-            
-            // 1 for stdout, 2 for stderr
-            if (header === 1) {
-                stdout += payload;
-            } else if (header === 2) {
-                stderr += payload;
+
+    return new Promise((resolve, reject) => {
+        stream.on('data', (chunk) => {
+            let i = 0;
+            while (i < chunk.length) {
+                const header = chunk.readUInt8(i);
+                const payloadSize = chunk.readUInt32BE(i + 4);
+                const payload = chunk.slice(i + 8, i + 8 + payloadSize).toString('utf8');
+                
+                if (header === 1) {
+                    stdout += payload;
+                } else if (header === 2) {
+                    stderr += payload;
+                }
+                
+                i += 8 + payloadSize;
             }
-            
-            i += 8 + payloadSize;
-        }
+        });
+
+        stream.on('end', async () => {
+            try {
+                const inspectResult = await exec.inspect();
+                resolve({
+                    stdout: stdout.trim(),
+                    stderr: stderr.trim(),
+                });
+            } catch (error) {
+                reject(error);
+            }
+        });
+
+        stream.on('error', (error) => {
+            reject(error);
+        });
     });
-
-    await new Promise((resolve) => container.wait(resolve));
-    await container.remove();
-
-    return { stdout: stdout.trim(), stderr: stderr.trim() };
 }
 
 router.post("/execute-code", async (req, res) => {
@@ -72,6 +84,11 @@ router.post("/execute-code", async (req, res) => {
         console.error('Error running code:', error);
         return res.status(500).json({ error: 'Failed to run code' });
     }
+});
+
+
+router.get("/health", (req, res) => {
+    return res.json({ message: "OK" });
 });
 
 export default router;

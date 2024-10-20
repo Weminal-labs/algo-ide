@@ -64,15 +64,20 @@ const Landing = () => {
   };
 
   const handleCompile = async () => {
-    const resp = await fetch('http://localhost:3001/execute-code', {
-      method: "POST",
-      body: JSON.stringify({ code }),
-      headers: {
-        'Content-Type': 'application/json'
-      }
-    });
-    const data = await resp.json();
-    setOutputDetails(data);
+    try {
+      const resp = await fetch('http://localhost:3001/execute-code', {
+        method: "POST",
+        body: JSON.stringify({ code }),
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      });
+      const data = await resp.json();
+      setOutputDetails(data);
+    } catch(err) {
+      console.log("err", err);
+    }
+    
   }
 
   // const handleCompile = () => {
