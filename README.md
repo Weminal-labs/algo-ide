@@ -46,5 +46,5 @@ To run the frontend, follow these steps:
 
 3. Start the development server:
    ```
-   npm run dev
+   npm run start
    ```
